@@ -9,7 +9,16 @@ const WHATSAPP_NUMBER = '254790267758'; // business WhatsApp number, already in 
 
 function openWhatsApp(message) {
   const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
-  window.open(url, '_blank', 'noopener');
+  const win = window.open(url, '_blank', 'noopener');
+  // window.open returns null (or undefined) if the browser blocked the popup —
+  // in that case WhatsApp did NOT open, so callers must not claim success.
+  return !!win;
+}
+
+// Accepts Kenyan formats: 07XXXXXXXX, 01XXXXXXXX, or +2547XXXXXXXX / +2541XXXXXXXX
+function isValidKenyanPhone(value) {
+  const cleaned = value.replace(/[\s-]/g, '');
+  return /^(?:\+254|254|0)(7|1)\d{8}$/.test(cleaned);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -24,20 +33,23 @@ document.addEventListener('DOMContentLoaded', () => {
   closeBtn?.addEventListener('click', closeMenu);
   mobileMenu?.querySelectorAll('a').forEach(a => a.addEventListener('click', closeMenu));
 
-  /* ---- Generic WhatsApp buttons (data-wa-message attribute) ---- */
-  document.querySelectorAll('[data-wa-message]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      openWhatsApp(btn.getAttribute('data-wa-message'));
-    });
-  });
-
   /* ---- "Request Price" buttons on product cards ---- */
   document.querySelectorAll('[data-request-price]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       const fish = btn.getAttribute('data-request-price');
       openWhatsApp(`Hello Lake Victoria Fish Supply, please share today's price for ${fish}.`);
+    });
+  });
+
+  /* ---- Generic WhatsApp buttons: warn (don't silently fail) if the browser blocked the popup ---- */
+  document.querySelectorAll('[data-wa-message]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const opened = openWhatsApp(btn.getAttribute('data-wa-message'));
+      if (!opened) {
+        alert("Your browser blocked WhatsApp from opening. Please allow pop-ups for this site, or message us directly at +254 790 267758.");
+      }
     });
   });
 
@@ -51,7 +63,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const get = (name) => (form.elements[name]?.value || '').trim();
 
     const fullName = get('fullName');
+    const email = get('email');
     const phone = get('phone');
+    const customerType = get('customerType');
     const fishType = get('fishType');
     const quantity = get('quantity');
     const size = get('size');
@@ -60,11 +74,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const dispatchDate = get('dispatchDate');
     const notes = get('notes');
 
-    // Basic required-field check so we never send an empty/broken order
-    if (!fullName || !phone || !fishType || !quantity || !town) {
-      msg.textContent = 'Please fill in your name, phone, fish type, quantity, and delivery town before sending.';
+    const showError = (text) => {
+      msg.textContent = text;
       msg.classList.remove('success');
       msg.classList.add('show', 'error');
+    };
+
+    // Required-field check so we never send an empty/broken order
+    if (!fullName || !phone || !fishType || !quantity || !town) {
+      showError('Please fill in your name, phone, fish type, quantity, and delivery town before sending.');
+      return;
+    }
+
+    // Kenyan phone format check: 07XXXXXXXX, 01XXXXXXXX, or +2547XXXXXXXX / +2541XXXXXXXX
+    if (!isValidKenyanPhone(phone)) {
+      showError('Please enter a valid Kenyan phone number, e.g. 07XXXXXXXX or +2547XXXXXXXX.');
       return;
     }
 
@@ -75,24 +99,31 @@ I would like to place an order.
 
 Name: ${fullName}
 Phone: ${phone}
+Customer Type: ${customerType || 'Not specified'}
 Fish: ${fishType}
 Quantity: ${quantity} kg
-Size: ${size || 'Not specified'}
+Fish Size: ${size || 'Not specified'}
 Destination: ${town}
 Transport: ${transport || 'Not specified'}
 Dispatch Date: ${dispatchDate || 'Not specified'}
-Additional Instructions: ${notes || 'None'}
+Additional Notes: ${notes || 'None'}
 
-Please confirm today's price and availability.`;
+Please confirm availability and today's price.`;
 
-    msg.textContent = 'Opening WhatsApp with your order details — just tap send.';
+    const opened = openWhatsApp(message);
+
+    if (!opened) {
+      // Never claim success if WhatsApp didn't actually open.
+      showError("WhatsApp didn't open — your browser may have blocked the pop-up. Please allow pop-ups for this site and try again, or message us directly at +254 790 267758.");
+      return;
+    }
+
+    msg.textContent = 'WhatsApp opened with your order details — just tap send to complete your order.';
     msg.classList.remove('error');
     msg.classList.add('show', 'success');
 
-    openWhatsApp(message);
-
     form.reset();
-    setTimeout(() => msg.classList.remove('show'), 7000);
+    setTimeout(() => msg.classList.remove('show'), 8000);
   });
 
 });
